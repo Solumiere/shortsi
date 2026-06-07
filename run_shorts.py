@@ -2,11 +2,13 @@
 Shorts pipeline (faceless / alternate-history): AI narrator + character + scene
 shots, optional Pexels/Pixabay stock B-roll, music bed and burned-in subtitles.
 
-Recurring faces are locked with reference portraits (img2img):
-  - narrator    -> assets/persona/ref_narrator.png  (global brand mascot, same every video)
-  - protagonist -> videos/<id>/ref_protagonist.png  (per-topic hero, set via scenario "protagonist")
-Character/narrator shots are generated img2img against those references so the same
-face recurs across shots. Falls back to text-only generation if img2img is unavailable.
+Recurring faces are locked with a small reference "character sheet" (img2img):
+  - narrator    -> assets/persona/ref_narrator_*.png  (global brand mascot, same every video)
+  - protagonist -> videos/<id>/ref_protagonist_*.png  (per-topic hero, set via scenario "protagonist")
+Each sheet is one front portrait + a few angle variants (generated img2img off the
+front). Character/narrator shots are then generated img2img against the WHOLE sheet,
+so the same face holds across poses and angles. Falls back to text-only if img2img
+is unavailable.
 
 Run order:
   1) python run_audio.py scenarios/<name>.json [voicer|edge|elevenlabs|kokoro|chatterbox]
@@ -46,6 +48,13 @@ HEADERS = {"X-API-Key": API_KEY, "Content-Type": "application/json"}
 
 # img2img provider for character face-lock (Flow supports up to 10 reference_images).
 IMG2IMG_PROVIDER = os.getenv("FASTGEN_IMG2IMG_PROVIDER", "flow")
+
+# Angle variants generated off the primary portrait to build a small character sheet.
+SHEET_ANGLES = [
+    "turned three-quarters to the left",
+    "turned three-quarters to the right",
+    "side profile view",
+]
 
 SCENE_STYLE = ("9:16 vertical, photorealistic, cinematic chiaroscuro lighting, "
                "muted desaturated tones, film grain, ultra realistic, 4K")
@@ -104,7 +113,7 @@ def api_generate_image_ref(prompt, ref_paths):
     Returns bytes, or None so the caller can fall back to text-only generation."""
     if not API_KEY:
         return None
-    refs = [_img_to_data_uri(p) for p in ref_paths if p and Path(p).exists()]
+    refs = [_img_to_data_uri(p) for p in ref_paths if p and Path(p).exists()][:10]
     if not refs:
         return None
     try:
@@ -122,23 +131,37 @@ def api_generate_image_ref(prompt, ref_paths):
         return None
 
 
-def ensure_reference(ref_path, description):
-    """Generate (once) a clean front-facing reference portrait to lock a character's face.
+def ensure_reference_set(ref_dir, prefix, description):
+    """Build (once) a small character sheet to lock a character's face: one front
+    portrait + a few angle variants (img2img off the front). Returns a list of paths.
     Cached on disk so re-runs and (for the narrator) every video reuse the same face."""
-    ref_path = Path(ref_path)
-    if ref_path.exists() and ref_path.stat().st_size > 0:
-        return ref_path
-    ref_path.parent.mkdir(parents=True, exist_ok=True)
-    portrait = (description + ". Front-facing portrait, head and shoulders, neutral expression, "
-                "clear detailed face, even cinematic lighting, plain dark background, "
-                "9:16 vertical, ultra realistic, 4K")
-    data = api_generate_image(portrait)
-    if data:
-        ref_path.write_bytes(data)
-        log(f"  reference face locked: {ref_path.stem}")
-        return ref_path
-    log(f"  could not generate reference {ref_path.stem} -> shots use text-only")
-    return None
+    ref_dir = Path(ref_dir)
+    ref_dir.mkdir(parents=True, exist_ok=True)
+    primary = ref_dir / f"{prefix}_0.png"
+    if not (primary.exists() and primary.stat().st_size > 0):
+        front = (description + ". Front-facing portrait, head and shoulders, neutral expression, "
+                 "clear detailed face, even cinematic lighting, plain dark background, "
+                 "9:16 vertical, ultra realistic, 4K")
+        data = api_generate_image(front)
+        if not data:
+            log(f"  could not generate reference {prefix} -> shots use text-only")
+            return []
+        primary.write_bytes(data)
+    refs = [primary]
+    for idx, angle in enumerate(SHEET_ANGLES, start=1):
+        p = ref_dir / f"{prefix}_{idx}.png"
+        if p.exists() and p.stat().st_size > 0:
+            refs.append(p)
+            continue
+        prompt = (description + f". The exact same person, {angle}, neutral expression, "
+                  "clear detailed face, even cinematic lighting, plain dark background, "
+                  "9:16 vertical, ultra realistic, 4K")
+        data = api_generate_image_ref(prompt, [primary])
+        if data:
+            p.write_bytes(data)
+            refs.append(p)
+    log(f"  reference sheet locked: {prefix} ({len(refs)} views)")
+    return refs
 
 
 def main():
@@ -165,11 +188,11 @@ def main():
     all_sc_shots = {s["id"]: s for ch in sc["chapters"] for s in ch["shots"]}
     log(f"Project: {sc['title']} | {len(shots)} shots | {timing['total_duration']:.0f}s")
 
-    # === LOCK RECURRING FACES (reference portraits for img2img) ===
+    # === LOCK RECURRING FACES (reference character sheets for img2img) ===
     log("=== Locking character faces ===")
-    narrator_ref = ensure_reference(BASE_DIR / "assets" / "persona" / "ref_narrator.png", NARRATOR)
+    narrator_refs = ensure_reference_set(BASE_DIR / "assets" / "persona", "ref_narrator", NARRATOR)
     protagonist_desc = sc.get("protagonist") or PROTAGONIST
-    protagonist_ref = ensure_reference(proj / "ref_protagonist.png", protagonist_desc)
+    protagonist_refs = ensure_reference_set(proj, "ref_protagonist", protagonist_desc)
 
     # === GENERATE VISUALS ===
     log("=== Generating visuals ===")
@@ -194,7 +217,7 @@ def main():
         if shot_type == "narrator_shot":
             prompt = sc_shot.get("prompt") or NARRATOR_POSES[narr_idx % len(NARRATOR_POSES)]
             narr_idx += 1
-            data = (api_generate_image_ref(prompt, [narrator_ref]) if narrator_ref else None) or api_generate_image(prompt)
+            data = (api_generate_image_ref(prompt, narrator_refs) if narrator_refs else None) or api_generate_image(prompt)
             if data:
                 img_path.write_bytes(data)
                 log(f"  [{i+1}/{len(shots)}] {sid} NARRATOR OK")
@@ -204,7 +227,7 @@ def main():
         elif shot_type == "character_shot":
             prompt = sc_shot.get("prompt") or PROTAGONIST_POSES[prot_idx % len(PROTAGONIST_POSES)]
             prot_idx += 1
-            data = (api_generate_image_ref(prompt, [protagonist_ref]) if protagonist_ref else None) or api_generate_image(prompt)
+            data = (api_generate_image_ref(prompt, protagonist_refs) if protagonist_refs else None) or api_generate_image(prompt)
             if data:
                 img_path.write_bytes(data)
                 log(f"  [{i+1}/{len(shots)}] {sid} CHARACTER OK")
