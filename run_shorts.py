@@ -17,7 +17,6 @@ Scenario shot types:
   narrator_shot   - recurring on-screen guide (persona.NARRATOR_POSES)
   character_shot  - POV protagonist (persona.PROTAGONIST_POSES) or custom prompt
   scene_shot      - AI scene from \"prompt\"; set \"source\":\"stock\" to use B-roll
-  text_card / infographic_shot - local typewriter text card
 """
 import os, sys, json, subprocess, time, re, base64, requests
 from pathlib import Path
@@ -121,18 +120,10 @@ def main():
 
         img_path = proj / f"{sid}.png"
         stock_path = proj / f"{sid}_stock.mp4"
-        text_path = proj / f"{sid}_text.mp4"
-        if img_path.exists() or stock_path.exists() or text_path.exists():
+        if img_path.exists() or stock_path.exists():
             continue
 
-        if shot_type in ("text_card", "infographic_shot"):
-            from create_text_video import create_text_video
-            visual = {"id": sid, "prompt": sc_shot.get("prompt", ""),
-                      "words": shot.get("words", []), "duration": dur}
-            create_text_video(visual, text_path, "9:16")
-            log(f"  [{i+1}/{len(shots)}] {sid} TEXT")
-
-        elif shot_type == "narrator_shot":
+        if shot_type == "narrator_shot":
             prompt = sc_shot.get("prompt") or NARRATOR_POSES[narr_idx % len(NARRATOR_POSES)]
             narr_idx += 1
             data = api_generate_image(prompt)
@@ -200,17 +191,11 @@ def main():
 
         img = proj / f"{sid}.png"
         stock = proj / f"{sid}_stock.mp4"
-        text_mp4 = proj / f"{sid}_text.mp4"
         temp = proj / f"_v{i:04d}.mp4"
         fps = 30
         frames = max(int(dur * fps), 1)
 
-        if text_mp4.exists():
-            subprocess.run(["ffmpeg", "-y", "-i", str(text_mp4), "-t", f"{dur:.3f}",
-                "-vf", f"scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H}",
-                "-an", "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p", "-r", "30",
-                str(temp)], capture_output=True)
-        elif stock.exists():
+        if stock.exists():
             subprocess.run(["ffmpeg", "-y", "-i", str(stock), "-t", f"{dur:.3f}",
                 "-vf", f"scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},fade=t=in:st=0:d=0.2,fade=t=out:st={max(0,dur-0.2):.3f}:d=0.2",
                 "-an", "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p", "-r", "30",
