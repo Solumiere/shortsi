@@ -3,8 +3,14 @@
   "title": "A soldier from 2026 dropped into Ancient Rome",
   "niche": "alternate history / what-if POV survival",
   "voice_settings": {
-    "tts": "edge",
-    "voice": "en-US-GuyNeural",
+    "tts": "voicer",
+    "voice_id": "TX3LPaxmHKxFdv7VOQHJ",
+    "voice_name": "Liam",
+    "model_id": "eleven_multilingual_v2",
+    "stability": 0.45,
+    "similarity_boost": 0.8,
+    "style": 0.3,
+    "use_speaker_boost": true,
     "speed": 1.0
   },
   "chapters": [
