@@ -47,9 +47,9 @@
         },
         {
           "id": "s07",
-          "type": "text_card",
+          "type": "scene_shot",
           "voiceover": "But the sword is not what kills you.",
-          "prompt": "Pure black background. Bold white text: THE SWORD WON'T KILL YOU. Smaller gold text below: SOMETHING ELSE WILL."
+          "prompt": "extreme close-up of a Roman gladius blade catching flickering firelight, slowly lowering out of frame, deep shadows, ominous dark background, shallow depth of field, photorealistic, cinematic, 9:16 vertical, 4K"
         },
         {
           "id": "s08",
