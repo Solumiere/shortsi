@@ -5,6 +5,7 @@ Generates TTS for all shots, combines into voiceover.wav,
 transcribes with word-level timestamps -> timing.json
 
 Supported voice_settings.tts values (read from the scenario JSON):
+  "voicer"      - Voicer API cloud TTS, ElevenLabs proxy (needs VOICER_API_KEY in env/.env)
   "elevenlabs"  - ElevenLabs cloud TTS (needs ELEVENLABS_API_KEY in env/.env)
   "kokoro"      - local Kokoro
   "chatterbox"  - local Chatterbox (falls back to Kokoro)
@@ -14,7 +15,7 @@ Supported voice_settings.tts values (read from the scenario JSON):
                   in the project dir; we transcribe and align it to the shots.
 
 Usage:
-  python run_audio.py scenarios/<name>.json [edge|elevenlabs|kokoro|chatterbox|manual|prerecorded]
+  python run_audio.py scenarios/<name>.json [voicer|edge|elevenlabs|kokoro|chatterbox|manual|prerecorded]
 """
 import os
 import sys
@@ -24,6 +25,7 @@ import subprocess
 import re
 import difflib
 import bisect
+import time
 from pathlib import Path
 from datetime import datetime
 
@@ -128,6 +130,79 @@ def generate_elevenlabs(text, wav_path, vs):
     return wav_path.exists() and wav_path.stat().st_size > 0
 
 
+def generate_voicer(text, wav_path, vs):
+    """Generate one shot via the Voicer API (ElevenLabs proxy) and save it as 24k mono WAV.
+
+    Flow: POST /tasks -> poll GET /tasks/{id}/status -> GET /tasks/{id}/result (MP3).
+    Standard-library ElevenLabs voices need no public_owner_id; set it in voice_settings
+    only for non-standard (community) voices.
+    """
+    import requests
+    api_key = os.getenv("VOICER_API_KEY", "")
+    if not api_key:
+        raise RuntimeError("VOICER_API_KEY is not set (put it in your .env)")
+
+    base_url = os.getenv("VOICER_BASE_URL", "https://voiceapi.csv666.ru")
+    voice_id = vs.get("voice_id") or "TX3LPaxmHKxFdv7VOQHJ"  # default: Liam
+    model_id = vs.get("model_id", "eleven_multilingual_v2")
+
+    vsettings = {
+        "stability": float(vs.get("stability", 0.45)),
+        "similarity_boost": float(vs.get("similarity_boost", 0.8)),
+        "style": float(vs.get("style", 0.3)),
+        "use_speaker_boost": bool(vs.get("use_speaker_boost", True)),
+        "speed": float(vs.get("speed", 1.0)),
+    }
+    template = {"model_id": model_id, "voice_id": voice_id, "voice_settings": vsettings}
+    public_owner_id = vs.get("public_owner_id")
+    if public_owner_id:
+        template["public_owner_id"] = public_owner_id
+
+    headers = {"X-API-Key": api_key, "Content-Type": "application/json"}
+
+    # 1) create the TTS task
+    r = requests.post(
+        f"{base_url}/tasks", headers=headers,
+        json={"text": text, "template": template}, timeout=60,
+    )
+    if r.status_code != 200:
+        raise RuntimeError(f"create HTTP {r.status_code}: {r.text[:300]}")
+    task_id = r.json()["task_id"]
+
+    # 2) poll until the result is ready
+    deadline = time.time() + 300
+    while time.time() < deadline:
+        s = requests.get(
+            f"{base_url}/tasks/{task_id}/status",
+            headers={"X-API-Key": api_key}, timeout=30,
+        )
+        status = s.json().get("status")
+        if status == "ending":
+            break
+        if status in ("error", "error_handled"):
+            raise RuntimeError(f"task {task_id} failed: {s.json().get('error')}")
+        time.sleep(3)
+    else:
+        raise TimeoutError(f"task {task_id} timed out")
+
+    # 3) download the MP3 result
+    d = requests.get(
+        f"{base_url}/tasks/{task_id}/result",
+        headers={"X-API-Key": api_key}, timeout=120,
+    )
+    if d.status_code != 200:
+        raise RuntimeError(f"download HTTP {d.status_code}: {d.text[:300]}")
+
+    mp3_path = wav_path.with_suffix(".mp3")
+    mp3_path.write_bytes(d.content)
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", str(mp3_path), "-ar", "24000", "-ac", "1", "-sample_fmt", "s16", str(wav_path)],
+        capture_output=True,
+    )
+    mp3_path.unlink(missing_ok=True)
+    return wav_path.exists() and wav_path.stat().st_size > 0
+
+
 def generate_tts(shots, project_dir, voice_settings):
     """Generate per-shot WAV files. Returns list of (shot_id, wav_path, duration)."""
     tts_engine = (voice_settings.get("tts_engine") or voice_settings.get("tts") or "chatterbox").lower()
@@ -136,6 +211,7 @@ def generate_tts(shots, project_dir, voice_settings):
     ref_audio_name = voice_settings.get("ref_audio")
 
     use_eleven = (tts_engine == "elevenlabs")
+    use_voicer = (tts_engine == "voicer")
     manual = (tts_engine == "manual")
 
     tts = None
@@ -145,6 +221,9 @@ def generate_tts(shots, project_dir, voice_settings):
     elif use_eleven:
         vname = voice_settings.get("voice_name", voice_settings.get("voice_id", "Brian"))
         log(f"  TTS: ElevenLabs (voice={vname}, model={voice_settings.get('model_id', 'eleven_multilingual_v2')})")
+    elif use_voicer:
+        vname = voice_settings.get("voice_name", voice_settings.get("voice_id", "Liam"))
+        log(f"  TTS: Voicer API (voice={vname}, model={voice_settings.get('model_id', 'eleven_multilingual_v2')})")
     else:
         if tts_engine == "chatterbox":
             try:
@@ -189,6 +268,11 @@ def generate_tts(shots, project_dir, voice_settings):
                 generated = generate_elevenlabs(text, wav_path, voice_settings)
             except Exception as e:
                 log(f"  {sid} ElevenLabs failed: {e}")
+        elif use_voicer:
+            try:
+                generated = generate_voicer(text, wav_path, voice_settings)
+            except Exception as e:
+                log(f"  {sid} Voicer failed: {e}")
         elif tts:
             try:
                 tts.generate_audio(text, wav_path)
@@ -196,8 +280,8 @@ def generate_tts(shots, project_dir, voice_settings):
             except Exception:
                 pass
 
-        # Edge TTS fallback only for local engines, never silently for ElevenLabs.
-        if not generated and not use_eleven:
+        # Edge TTS fallback only for local engines, never silently for cloud voices.
+        if not generated and not use_eleven and not use_voicer:
             try:
                 import edge_tts, asyncio
                 async def gen(t, p):
@@ -468,7 +552,7 @@ def run_prerecorded(sc, shots, project_dir):
 def main():
     if len(sys.argv) < 2:
         print("Usage: python run_audio.py scenarios/<name>.json [engine]")
-        print("  engine: elevenlabs | kokoro | chatterbox | edge | manual | prerecorded")
+        print("  engine: voicer | elevenlabs | kokoro | chatterbox | edge | manual | prerecorded")
         sys.exit(1)
 
     scenario_path = BASE_DIR / sys.argv[1]
