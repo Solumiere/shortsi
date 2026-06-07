@@ -47,8 +47,6 @@ VOICES = {
     "Chris":  ("iP95p4xoKVk53GoZ742B", "casual natural US male"),
     "Callum": ("N2lVS1w4EtoT3dr4eOWO", "intense gravelly - dramatic tension"),
     "Liam":   ("TX3LPaxmHKxFdv7VOQHJ", "young articulate US male"),
-    # Baseline only - the overused faceless cliche. Keep for A/B comparison.
-    "Brian":  ("nPczCjzI2devNBz1zQrb", "OVERUSED faceless cliche - baseline"),
 }
 
 MODEL_ID = "eleven_multilingual_v2"
