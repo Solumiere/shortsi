@@ -2,8 +2,14 @@
 Shorts pipeline (faceless / alternate-history): AI narrator + character + scene
 shots, optional Pexels/Pixabay stock B-roll, music bed and burned-in subtitles.
 
+Recurring faces are locked with reference portraits (img2img):
+  - narrator    -> assets/persona/ref_narrator.png  (global brand mascot, same every video)
+  - protagonist -> videos/<id>/ref_protagonist.png  (per-topic hero, set via scenario "protagonist")
+Character/narrator shots are generated img2img against those references so the same
+face recurs across shots. Falls back to text-only generation if img2img is unavailable.
+
 Run order:
-  1) python run_audio.py scenarios/<name>.json [edge|elevenlabs|kokoro|chatterbox]
+  1) python run_audio.py scenarios/<name>.json [voicer|edge|elevenlabs|kokoro|chatterbox]
         -> videos/<id>/voiceover.wav + timing.json
      (or: python make_timing.py scenarios/<name>.json if voiceover.wav exists)
   2) python run_shorts.py scenarios/<name>.json
@@ -16,7 +22,7 @@ Secrets load from .env (see .env.example):
 Scenario shot types:
   narrator_shot   - recurring on-screen guide (persona.NARRATOR_POSES)
   character_shot  - POV protagonist (persona.PROTAGONIST_POSES) or custom prompt
-  scene_shot      - AI scene from \"prompt\"; set \"source\":\"stock\" to use B-roll
+  scene_shot      - AI scene from "prompt"; set "source":"stock" to use B-roll
 """
 import os, sys, json, subprocess, time, re, base64, requests
 from pathlib import Path
@@ -31,12 +37,15 @@ except Exception:
 BASE_DIR = Path(__file__).parent
 sys.path.insert(0, str(BASE_DIR))
 from pexels_stock import fetch_stock_clips, load_global_used_ids
-from persona import NARRATOR_POSES, PROTAGONIST_POSES
+from persona import NARRATOR_POSES, PROTAGONIST_POSES, NARRATOR, PROTAGONIST
 
 API_URL = os.getenv("FASTGEN_BASE_URL", "https://googler.fast-gen.ai")
 STORAGE_URL = os.getenv("FASTGEN_STORAGE_URL", "https://storage.fast-gen.ai")
 API_KEY = os.getenv("FASTGEN_API_KEY", "")
 HEADERS = {"X-API-Key": API_KEY, "Content-Type": "application/json"}
+
+# img2img provider for character face-lock (Flow supports up to 10 reference_images).
+IMG2IMG_PROVIDER = os.getenv("FASTGEN_IMG2IMG_PROVIDER", "flow")
 
 SCENE_STYLE = ("9:16 vertical, photorealistic, cinematic chiaroscuro lighting, "
                "muted desaturated tones, film grain, ultra realistic, 4K")
@@ -46,8 +55,32 @@ def log(msg):
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
 
 
+def _poll_operation(op_id):
+    """Poll a fast-gen operation id until success/error. Returns image bytes or None."""
+    for _ in range(20):
+        time.sleep(10)
+        d = requests.get(f"{API_URL}/api/v4/operations/{op_id}", headers=HEADERS, timeout=30).json()
+        status = d.get("status")
+        if status == "success":
+            img = d["result"]
+            if isinstance(img, list):
+                img = img[0]
+            if img.startswith("http"):
+                return requests.get(img, timeout=60).content
+            elif img.startswith("file:"):
+                return requests.get(f"{STORAGE_URL}/file/{img[5:]}/raw", timeout=60).content
+            elif img.startswith("data:image"):
+                m = re.match(r"data:image/[^;]+;base64,(.+)", img)
+                if m:
+                    return base64.b64decode(m.group(1))
+            return None
+        elif status == "error":
+            return None
+    return None
+
+
 def api_generate_image(prompt):
-    """Generate one 9:16 image via Fast Gen AI. Returns bytes or None."""
+    """Text-to-image via Fast Gen AI. Returns bytes or None."""
     if not API_KEY:
         log("  FASTGEN_API_KEY missing -> cannot generate AI image (set it in .env)")
         return None
@@ -57,26 +90,55 @@ def api_generate_image(prompt):
         op_id = r.json().get("operation_id")
         if not op_id:
             return None
-        for _ in range(20):
-            time.sleep(10)
-            d = requests.get(f"{API_URL}/api/v4/operations/{op_id}", headers=HEADERS, timeout=30).json()
-            if d.get("status") == "success":
-                img = d["result"]
-                if isinstance(img, list):
-                    img = img[0]
-                if img.startswith("http"):
-                    return requests.get(img, timeout=60).content
-                elif img.startswith("file:"):
-                    return requests.get(f"{STORAGE_URL}/file/{img[5:]}/raw", timeout=60).content
-                elif img.startswith("data:image"):
-                    m = re.match(r"data:image/[^;]+;base64,(.+)", img)
-                    if m:
-                        return base64.b64decode(m.group(1))
-            elif d.get("status") == "error":
-                return None
-        return None
+        return _poll_operation(op_id)
     except Exception:
         return None
+
+
+def _img_to_data_uri(path):
+    return "data:image/png;base64," + base64.b64encode(Path(path).read_bytes()).decode()
+
+
+def api_generate_image_ref(prompt, ref_paths):
+    """Image-to-image face-lock via Fast Gen AI Flow provider with reference images.
+    Returns bytes, or None so the caller can fall back to text-only generation."""
+    if not API_KEY:
+        return None
+    refs = [_img_to_data_uri(p) for p in ref_paths if p and Path(p).exists()]
+    if not refs:
+        return None
+    try:
+        r = requests.post(f"{API_URL}/api/v4/{IMG2IMG_PROVIDER}/image/generate", headers=HEADERS,
+                          json={"prompt": prompt, "aspect_ratio": "9:16", "reference_images": refs},
+                          timeout=60)
+        if r.status_code != 200:
+            log(f"  img2img HTTP {r.status_code} ({IMG2IMG_PROVIDER}) -> text-only fallback")
+            return None
+        op_id = r.json().get("operation_id")
+        if not op_id:
+            return None
+        return _poll_operation(op_id)
+    except Exception:
+        return None
+
+
+def ensure_reference(ref_path, description):
+    """Generate (once) a clean front-facing reference portrait to lock a character's face.
+    Cached on disk so re-runs and (for the narrator) every video reuse the same face."""
+    ref_path = Path(ref_path)
+    if ref_path.exists() and ref_path.stat().st_size > 0:
+        return ref_path
+    ref_path.parent.mkdir(parents=True, exist_ok=True)
+    portrait = (description + ". Front-facing portrait, head and shoulders, neutral expression, "
+                "clear detailed face, even cinematic lighting, plain dark background, "
+                "9:16 vertical, ultra realistic, 4K")
+    data = api_generate_image(portrait)
+    if data:
+        ref_path.write_bytes(data)
+        log(f"  reference face locked: {ref_path.stem}")
+        return ref_path
+    log(f"  could not generate reference {ref_path.stem} -> shots use text-only")
+    return None
 
 
 def main():
@@ -103,6 +165,12 @@ def main():
     all_sc_shots = {s["id"]: s for ch in sc["chapters"] for s in ch["shots"]}
     log(f"Project: {sc['title']} | {len(shots)} shots | {timing['total_duration']:.0f}s")
 
+    # === LOCK RECURRING FACES (reference portraits for img2img) ===
+    log("=== Locking character faces ===")
+    narrator_ref = ensure_reference(BASE_DIR / "assets" / "persona" / "ref_narrator.png", NARRATOR)
+    protagonist_desc = sc.get("protagonist") or PROTAGONIST
+    protagonist_ref = ensure_reference(proj / "ref_protagonist.png", protagonist_desc)
+
     # === GENERATE VISUALS ===
     log("=== Generating visuals ===")
     narr_idx = 0
@@ -126,7 +194,7 @@ def main():
         if shot_type == "narrator_shot":
             prompt = sc_shot.get("prompt") or NARRATOR_POSES[narr_idx % len(NARRATOR_POSES)]
             narr_idx += 1
-            data = api_generate_image(prompt)
+            data = (api_generate_image_ref(prompt, [narrator_ref]) if narrator_ref else None) or api_generate_image(prompt)
             if data:
                 img_path.write_bytes(data)
                 log(f"  [{i+1}/{len(shots)}] {sid} NARRATOR OK")
@@ -136,7 +204,7 @@ def main():
         elif shot_type == "character_shot":
             prompt = sc_shot.get("prompt") or PROTAGONIST_POSES[prot_idx % len(PROTAGONIST_POSES)]
             prot_idx += 1
-            data = api_generate_image(prompt)
+            data = (api_generate_image_ref(prompt, [protagonist_ref]) if protagonist_ref else None) or api_generate_image(prompt)
             if data:
                 img_path.write_bytes(data)
                 log(f"  [{i+1}/{len(shots)}] {sid} CHARACTER OK")
