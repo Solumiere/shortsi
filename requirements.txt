@@ -1,0 +1,15 @@
+# pip install -r requirements.txt
+# NOTE: ffmpeg must also be installed and on your system PATH (not a pip package).
+
+requests
+python-dotenv
+Pillow
+httpx
+
+# TTS
+edge-tts            # free default engine
+# elevenlabs        # optional, premium voices
+
+# Transcription / word-level timing (pulls in torch; first run downloads models)
+openai-whisper
+whisper-timestamped

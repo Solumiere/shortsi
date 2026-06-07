@@ -1,0 +1,91 @@
+{
+  "video_id": "shorts_soldier_2026_rome",
+  "title": "A soldier from 2026 dropped into Ancient Rome",
+  "niche": "alternate history / what-if POV survival",
+  "voice_settings": {
+    "tts": "edge",
+    "voice": "en-US-GuyNeural",
+    "speed": 1.0
+  },
+  "chapters": [
+    {
+      "shots": [
+        {
+          "id": "s01",
+          "type": "character_shot",
+          "voiceover": "You're a special forces soldier in 2026. One second you're on patrol. The next, you're face down in cold mud.",
+          "prompt": "a modern special-forces soldier in 2026 multicam fatigues, face down in cold mud, just waking up, disoriented, dawn light, photorealistic, cinematic, shallow depth of field, 9:16 vertical, ultra realistic, 4K"
+        },
+        {
+          "id": "s02",
+          "type": "scene_shot",
+          "voiceover": "You look up. Stone aqueducts. Men in armor. This is Rome, seventy-nine A D. And you do not belong here.",
+          "prompt": "low-angle POV of towering ancient Roman aqueducts and stone city, Roman legionaries in armor in the distance, dramatic morning light, photorealistic"
+        },
+        {
+          "id": "s03",
+          "type": "narrator_shot",
+          "voiceover": "So let's run it. How long does a modern soldier actually survive in the ancient world?"
+        },
+        {
+          "id": "s04",
+          "type": "character_shot",
+          "voiceover": "Your rifle has thirty rounds. After that, it's a four pound paperweight. No factory here makes more.",
+          "prompt": "close-up of a modern soldier's hands checking a rifle magazine, worried expression, ancient stone wall background, firelight, photorealistic, cinematic, 9:16 vertical, 4K"
+        },
+        {
+          "id": "s05",
+          "type": "scene_shot",
+          "voiceover": "The first legionaries who find you don't see a soldier. They see a stranger in strange clothes. A spy. Or a demon.",
+          "prompt": "Roman legionaries surrounding and pointing spears at a kneeling modern soldier, torches, tense standoff, night, photorealistic, cinematic"
+        },
+        {
+          "id": "s06",
+          "type": "scene_shot",
+          "voiceover": "You can't explain. You don't speak Latin. And I come in peace means nothing to a centurion with a drawn blade.",
+          "prompt": "a stern Roman centurion in detailed armor drawing a gladius, extreme close-up, cold determined eyes, dark dramatic lighting, photorealistic"
+        },
+        {
+          "id": "s07",
+          "type": "text_card",
+          "voiceover": "But the sword is not what kills you.",
+          "prompt": "Pure black background. Bold white text: THE SWORD WON'T KILL YOU. Smaller gold text below: SOMETHING ELSE WILL."
+        },
+        {
+          "id": "s08",
+          "type": "narrator_shot",
+          "voiceover": "Because the real enemy isn't the legion. It's the water."
+        },
+        {
+          "id": "s09",
+          "type": "scene_shot",
+          "voiceover": "No antibiotics. No clean water. A small cut gets infected, and in two weeks you're gone. Exactly like half their own army.",
+          "prompt": "murky ancient water well and clay cups, dim light, ominous mood, a sick soldier lying on a cot in shadow, photorealistic, cinematic"
+        },
+        {
+          "id": "s10",
+          "type": "character_shot",
+          "voiceover": "Your real edge? You know germ theory. You know to boil the water, to clean a wound, to keep waste away from camp.",
+          "prompt": "a modern soldier boiling water over a fire in a Roman camp at night, focused expression, other Romans watching curiously, photorealistic, cinematic, 9:16 vertical, 4K"
+        },
+        {
+          "id": "s11",
+          "type": "scene_shot",
+          "voiceover": "Play it right, and a soldier who never gets sick starts to look like something more than human.",
+          "prompt": "a lone figure standing tall and healthy among kneeling, awed Roman soldiers, golden light breaking through clouds, epic mood, photorealistic, cinematic"
+        },
+        {
+          "id": "s12",
+          "type": "narrator_shot",
+          "voiceover": "That's how a man with no army becomes a legend. Knowledge beats numbers."
+        },
+        {
+          "id": "s13",
+          "type": "character_shot",
+          "voiceover": "So. Modern soldier, ancient Rome. Do you survive a month? Drop your plan in the comments.",
+          "prompt": "a modern soldier looking directly at camera, faint confident half-smile, firelit Roman camp behind him at night, photorealistic, cinematic, 9:16 vertical, 4K"
+        }
+      ]
+    }
+  ]
+}

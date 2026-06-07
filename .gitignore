@@ -1,0 +1,25 @@
+# secrets
+.env
+.env.local
+
+# python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+
+# generated media
+videos/
+*.mp4
+*.wav
+*.mp3
+*.png
+*.ass
+assets/music/
+
+# misc
+.DS_Store
+.idea/
+.vscode/
